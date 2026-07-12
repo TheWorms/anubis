@@ -189,6 +189,10 @@ gptbot
 Graphene
 grpcprom
 grw
+gubal
+gubalctl
+GUBALD
+gubaltest
 gzw
 handrolled
 Hashcash
@@ -425,6 +429,7 @@ subr
 subrequest
 subtest
 SVCNAME
+sysext
 tagline
 tarballs
 tarrif
