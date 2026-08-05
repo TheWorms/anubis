@@ -11,11 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Update Bulgarian locale ([#1708](https://github.com/TecharoHQ/anubis/pull/1708))
-
 <!-- This changes the project to: -->
 
+## v1.27.0-pre3: Moenbryda Wilfsunnwyn
+
+- Make the honeypot feature log detected addresses to the disk every minute when `honeypot.ip_log_file` is set. See the [IP address logging](./admin/honeypot/overview.mdx#ip-address-logging) section for more information.
 - Add Basque (eu) localization.
+- Rename cookies based on cookie settings.
+- Update Bulgarian locale ([#1708](https://github.com/TecharoHQ/anubis/pull/1708))
 - Enabled the Partitioned flag on cookies by default ([#1701](https://github.com/TecharoHQ/anubis/issues/1701)).
 
 ## v1.27.0-pre2: Moenbryda Wilfsunnwyn
