@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- This changes the project to: -->
 
+- Allow importing bot policy rules [using wildcard matching](./admin/configuration/import.mdx#importing-many-files-at-once) ([#1815](https://github.com/TecharoHQ/anubis/issues/1815)).
+- Fix bot policy imports to not require pedantically correct YAML formatting.
+- JavaScript served by the `fast` challenge is loaded using [`defer`](https://www.w3schools.com/tags/att_script_defer.asp) instead of `async` ([#1782](https://github.com/TecharoHQ/anubis/issues/1782)).
+- Pre-release tags no longer populate the `latest` tag in Docker. Pre-releases can be installed by using the `pre` tag.
+- Updates Alibaba cloud IP list ([#1813](https://github.com/TecharoHQ/anubis/pull/1813))
+- Updates Googlebot IP list ([#1812](https://github.com/TecharoHQ/anubis/pull/1812))
+- Updates IP list for DuckDuckBot ([#1810](https://github.com/TecharoHQ/anubis/pull/1810))
+- Update Huawei Cloud IP list ([#1814](https://github.com/TecharoHQ/anubis/pull/1814))
+- Add standard library rules for making Dillo less threatening to Anubis and [document how to enable them](./admin/faq.mdx#how-do-i-allow-small-internet-browsers-like-dillo-netsurf-and-pale-moon-to-bypass-anubis).
+
 ## v1.27.0-pre3: Moenbryda Wilfsunnwyn
 
 - Make the honeypot feature log detected addresses to the disk every minute when `honeypot.ip_log_file` is set. See the [IP address logging](./admin/honeypot/overview.mdx#ip-address-logging) section for more information.
