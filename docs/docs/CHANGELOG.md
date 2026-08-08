@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- This changes the project to: -->
 
+## v1.27.0-pre4: Moenbryda Wilfsunnwyn
+
+- Add support for JSON sources to iplist2rule ([#1833](https://github.com/TecharoHQ/anubis/pull/1833))
 - Allow importing bot policy rules [using wildcard matching](./admin/configuration/import.mdx#importing-many-files-at-once) ([#1815](https://github.com/TecharoHQ/anubis/issues/1815)).
 - Fix bot policy imports to not require pedantically correct YAML formatting.
 - JavaScript served by the `fast` challenge is loaded using [`defer`](https://www.w3schools.com/tags/att_script_defer.asp) instead of `async` ([#1782](https://github.com/TecharoHQ/anubis/issues/1782)).
@@ -25,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Amend default [Lightpanda](https://lightpanda.io/) rule to match current behaviour, add smoke test to ensure it keeps working ([#1822](https://github.com/TecharoHQ/anubis/issues/1822)).
 - Fix a panic when a request asks for the undetermined language tag, such as `Accept-Language: und` ([#1776](https://github.com/TecharoHQ/anubis/issues/1776)).
 - Allow user agents that start with capital-G `Git` in `(data)/clients/git.yaml`.
+- Add Croatian locale
 
 ## v1.27.0-pre3: Moenbryda Wilfsunnwyn
 
