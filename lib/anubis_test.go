@@ -498,7 +498,7 @@ func TestCheckDefaultDifficultyMatchesPolicy(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			req.Header.Add("X-Real-Ip", "127.0.0.1")
+			req.Header.Add("X-Real-IP", "127.0.0.1")
 
 			cr, bot, err := s.check(req, s.logger)
 			if err != nil {
@@ -731,6 +731,72 @@ func TestCustomStatusCodes(t *testing.T) {
 	}
 }
 
+func assertHeaderValues(t *testing.T, header http.Header, name string, want ...string) {
+	t.Helper()
+
+	got := header.Values(name)
+	if len(got) != len(want) {
+		t.Fatalf("header %s has values %q, wanted %q", name, got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("header %s has values %q, wanted %q", name, got, want)
+		}
+	}
+}
+
+func TestDownstreamAnubisHeadersAreAuthoritative(t *testing.T) {
+	const attackerValue = "attacker-controlled"
+
+	t.Run("explicit allow", func(t *testing.T) {
+		for _, tc := range []struct {
+			name  string
+			spoof bool
+		}{
+			{name: "ordinary request"},
+			{name: "spoofed headers", spoof: true},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				var forwarded http.Header
+				srv := spawnAnubis(t, Options{
+					Next: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						forwarded = r.Header.Clone()
+						w.WriteHeader(http.StatusNoContent)
+					}),
+					Policy: loadPolicies(t, "testdata/permissive.yaml", 4),
+				})
+
+				req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+				req.Header.Set("X-Real-IP", "127.0.0.1")
+				if tc.spoof {
+					req.Header["X-Anubis-Rule"] = []string{attackerValue, "second-attacker-value"}
+					req.Header["X-Anubis-Action"] = []string{attackerValue, "second-attacker-value"}
+					req.Header["X-Anubis-Status"] = []string{attackerValue, "second-attacker-value"}
+					req.Header.Set("Connection", "keep-alive, x-anubis-rule, X-Anubis-Status")
+				}
+
+				cr, _, err := srv.check(req, srv.logger)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				rr := httptest.NewRecorder()
+				srv.maybeReverseProxyOrPage(rr, req)
+
+				if forwarded == nil {
+					t.Fatal("request was not forwarded")
+				}
+				assertHeaderValues(t, forwarded, "X-Anubis-Rule", cr.Name)
+				assertHeaderValues(t, forwarded, "X-Anubis-Action", string(cr.Rule))
+				assertHeaderValues(t, forwarded, "X-Anubis-Status")
+				if tc.spoof {
+					assertHeaderValues(t, forwarded, "Connection", "keep-alive")
+				}
+			})
+		}
+	})
+}
+
 func TestCloudflareWorkersRule(t *testing.T) {
 	for _, variant := range []string{"cel", "header"} {
 		t.Run(variant, func(t *testing.T) {
@@ -755,7 +821,7 @@ func TestCloudflareWorkersRule(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				req.Header.Add("X-Real-Ip", "127.0.0.1")
+				req.Header.Add("X-Real-IP", "127.0.0.1")
 				req.Header.Add("Cf-Worker", "true")
 
 				cr, _, err := s.check(req, s.logger)
@@ -774,7 +840,7 @@ func TestCloudflareWorkersRule(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				req.Header.Add("X-Real-Ip", "127.0.0.1")
+				req.Header.Add("X-Real-IP", "127.0.0.1")
 
 				cr, _, err := s.check(req, s.logger)
 				if err != nil {
@@ -1146,7 +1212,7 @@ func TestPassChallengeNilRuleChallengeFallback(t *testing.T) {
 	q.Set("id", chall.ID)
 	q.Set("challenge", chall.RandomData)
 	req.URL.RawQuery = q.Encode()
-	req.Header.Set("X-Real-Ip", "203.0.113.4")
+	req.Header.Set("X-Real-IP", "203.0.113.4")
 	req.Header.Set("User-Agent", "NilChallengeTester/1.0")
 	req.AddCookie(&http.Cookie{Name: srv.cookieName(anubis.TestCookieName), Value: chall.ID})
 
@@ -1182,7 +1248,7 @@ func TestXForwardedForNoDoubleComma(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req.Header.Set("X-Real-Ip", "10.0.0.1")
+	req.Header.Set("X-Real-IP", "10.0.0.1")
 
 	resp, err := ts.Client().Do(req)
 	if err != nil {

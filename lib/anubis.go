@@ -110,7 +110,7 @@ func (s *Server) getRequestLogger(r *http.Request) (*slog.Logger, *http.Request)
 		ctx, cancel := context.WithTimeout(r.Context(), 500*time.Millisecond)
 		defer cancel()
 
-		ip := r.Header.Get("X-Real-Ip")
+		ip := r.Header.Get("X-Real-IP")
 		if info, err := s.policy.ThothClient.IPToASN.Lookup(ctx, &iptoasnv1.LookupRequest{IpAddress: ip}); err == nil && info.GetAnnounced() {
 			asn := strconv.FormatUint(uint64(info.GetAsNumber()), 10)
 			lg = lg.With("asn", info.GetAsNumber(), "asn_description", info.GetDescription())
@@ -180,7 +180,7 @@ func (s *Server) issueChallenge(ctx context.Context, r *http.Request, lg *slog.L
 		PolicyRuleHash: rule.Hash(),
 		Metadata: map[string]string{
 			"User-Agent": r.Header.Get("User-Agent"),
-			"X-Real-Ip":  r.Header.Get("X-Real-Ip"),
+			"X-Real-IP":  r.Header.Get("X-Real-IP"),
 		},
 	}
 
@@ -240,11 +240,65 @@ func (s *Server) maybeReverseProxyOrPage(w http.ResponseWriter, r *http.Request)
 	s.maybeReverseProxy(w, r, false)
 }
 
+const (
+	downstreamRiskRuleHeader   = "X-Anubis-Rule"
+	downstreamRiskActionHeader = "X-Anubis-Action"
+	downstreamRiskStatusHeader = "X-Anubis-Status"
+)
+
+func isDownstreamRiskHeader(name string) bool {
+	switch http.CanonicalHeaderKey(name) {
+	case downstreamRiskRuleHeader, downstreamRiskActionHeader, downstreamRiskStatusHeader:
+		return true
+	}
+	return false
+}
+
+func removeDownstreamRiskConnectionTokens(header http.Header) {
+	connectionValues := header.Values("Connection")
+	header.Del("Connection")
+	for _, value := range connectionValues {
+		var remaining []string
+		for token := range strings.SplitSeq(value, ",") {
+			token = strings.TrimSpace(token)
+			if token == "" || isDownstreamRiskHeader(token) {
+				continue
+			}
+			remaining = append(remaining, token)
+		}
+		if len(remaining) != 0 {
+			header.Add("Connection", strings.Join(remaining, ", "))
+		}
+	}
+}
+
+func clearDownstreamRiskHeaders(header http.Header) {
+	// Remove client-supplied values for headers owned by Anubis.
+	header.Del(downstreamRiskRuleHeader)
+	header.Del(downstreamRiskActionHeader)
+	header.Del(downstreamRiskStatusHeader)
+
+	// Remove Connection options that could strip those headers downstream.
+	removeDownstreamRiskConnectionTokens(header)
+}
+
+func setDownstreamRiskHeaders(header http.Header, cr policy.CheckResult, status string) {
+	removeDownstreamRiskConnectionTokens(header)
+	header.Set(downstreamRiskRuleHeader, cr.Name)
+	header.Set(downstreamRiskActionHeader, string(cr.Rule))
+	if status == "" {
+		header.Del(downstreamRiskStatusHeader)
+		return
+	}
+	header.Set(downstreamRiskStatusHeader, status)
+}
+
 func (s *Server) maybeReverseProxy(w http.ResponseWriter, r *http.Request, httpStatusOnly bool) {
 	lg, r := s.getRequestLogger(r)
 
 	if s.opts.OpenGraph.Enabled {
 		if val, _ := s.store.Get(r.Context(), "ogtags:allow:"+r.Host+r.URL.String()); val != nil {
+			clearDownstreamRiskHeaders(r.Header)
 			lg.DebugContext(r.Context(), "serving opengraph tag asset")
 			s.ServeHTTPNext(w, r)
 			return
@@ -265,15 +319,13 @@ func (s *Server) maybeReverseProxy(w http.ResponseWriter, r *http.Request, httpS
 		return
 	}
 
-	r.Header.Add("X-Anubis-Rule", cr.Name)
-	r.Header.Add("X-Anubis-Action", string(cr.Rule))
 	lg = lg.With("check_result", cr)
 	{
 		asn, asnDesc := asnFromContext(r.Context())
 		policy.Applications.WithLabelValues(cr.Name, string(cr.Rule), asn, asnDesc).Add(1)
 	}
 
-	ip := r.Header.Get("X-Real-Ip")
+	ip := r.Header.Get("X-Real-IP")
 
 	if s.handleDNSBL(w, r, ip, lg) {
 		return
@@ -346,7 +398,7 @@ func (s *Server) maybeReverseProxy(w http.ResponseWriter, r *http.Request, httpS
 		return
 	}
 
-	r.Header.Add("X-Anubis-Status", "PASS")
+	setDownstreamRiskHeaders(r.Header, cr, "PASS")
 	s.ServeHTTPNext(w, r)
 }
 
@@ -362,6 +414,7 @@ func (s *Server) checkRules(w http.ResponseWriter, r *http.Request, cr policy.Ch
 	switch cr.Rule {
 	case config.RuleAllow:
 		lg.DebugContext(r.Context(), "allowing traffic to origin (explicit)")
+		setDownstreamRiskHeaders(r.Header, cr, "")
 		s.ServeHTTPNext(w, r)
 		return true
 	case config.RuleDeny:
@@ -612,7 +665,7 @@ func (s *Server) PassChallenge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	lg.Info("challenge accepted", "challenge", chall.ID)
+	lg.InfoContext(r.Context(), "challenge accepted")
 
 	// generate JWT cookie
 	var tokenString string
@@ -672,9 +725,9 @@ func cr(name string, rule config.Rule, weight int) policy.CheckResult {
 
 // Check evaluates the list of rules, and returns the result
 func (s *Server) check(r *http.Request, lg *slog.Logger) (policy.CheckResult, *policy.Bot, error) {
-	host := r.Header.Get("X-Real-Ip")
+	host := r.Header.Get("X-Real-IP")
 	if host == "" {
-		return decaymap.Zilch[policy.CheckResult](), nil, fmt.Errorf("[misconfiguration] X-Real-Ip header is not set")
+		return decaymap.Zilch[policy.CheckResult](), nil, fmt.Errorf("[misconfiguration] X-Real-IP header is not set")
 	}
 
 	addr := net.ParseIP(host)
