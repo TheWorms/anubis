@@ -33,7 +33,6 @@ import (
 	"github.com/TecharoHQ/anubis/lib/config"
 	"github.com/TecharoHQ/anubis/lib/metrics"
 	botPolicy "github.com/TecharoHQ/anubis/lib/policy"
-	"github.com/TecharoHQ/anubis/lib/thoth"
 	"github.com/TecharoHQ/anubis/web"
 	"github.com/facebookgo/flagenv"
 	"github.com/google/uuid"
@@ -86,9 +85,9 @@ var (
 	xffStripPrivate          = flag.Bool("xff-strip-private", true, "if set, strip private addresses from X-Forwarded-For")
 	customRealIPHeader       = flag.String("custom-real-ip-header", "", "if set, read remote IP from header of this name (in case your environment doesn't set X-Real-IP header)")
 
-	thothInsecure        = flag.Bool("thoth-insecure", false, "if set, connect to Thoth over plain HTTP/2, don't enable this unless support told you to")
-	thothURL             = flag.String("thoth-url", "", "if set, URL for Thoth, the IP reputation database for Anubis")
-	thothToken           = flag.String("thoth-token", "", "if set, API token for Thoth, the IP reputation database for Anubis")
+	thothInsecure        = flag.Bool("thoth-insecure", false, "deprecated: Thoth support was removed, use the geoip block in the policy file")
+	thothURL             = flag.String("thoth-url", "", "deprecated: Thoth support was removed, use the geoip block in the policy file")
+	thothToken           = flag.String("thoth-token", "", "deprecated: Thoth support was removed, use the geoip block in the policy file")
 	jwtRestrictionHeader = flag.String("jwt-restriction-header", "X-Real-IP", "If set, the JWT is only valid if the current value of this header matched the value when the JWT was created")
 
 	preserveRefererQueryParam = flag.Bool("preserve-referer-query-param", false, "if true, appends the original external Referer host as utm_source/utm_medium query parameters to the post-challenge redirect URL, for analytics tools that rely on document.referrer or UTM tags instead of the HTTP Referer header. See https://github.com/TecharoHQ/anubis/issues/1596")
@@ -206,13 +205,28 @@ func makeReverseProxy(target string, targetSNI string, targetHost string, insecu
 			if targetHost != "" {
 				r.Out.Host = targetHost
 			}
-			if targetSNI == "auto" {
-				transport.TLSClientConfig.ServerName = r.Out.Host
-			}
+
 		},
 	}
 
+	if targetSNI == "auto" {
+		rp.Transport = automaticSNITransport{transport}
+	}
 	return rp, nil
+}
+
+type automaticSNITransport struct{ transport *http.Transport }
+
+func (t automaticSNITransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	transport := t.transport.Clone()
+	transport.TLSClientConfig = t.transport.TLSClientConfig.Clone()
+	host := r.Host
+	if hostname, _, err := net.SplitHostPort(host); err == nil {
+		host = hostname
+	}
+	transport.TLSClientConfig.ServerName = host
+	transport.DisableKeepAlives = true
+	return transport.RoundTrip(r)
 }
 
 func main() {
@@ -286,20 +300,8 @@ func run(ctx context.Context) {
 		log.Fatalf("you can't set COOKIE_DOMAIN and COOKIE_DYNAMIC_DOMAIN at the same time")
 	}
 
-	// Thoth configuration
-	switch {
-	case *thothURL != "" && *thothToken == "":
-		lg.WarnContext(ctx, "THOTH_URL is set but no THOTH_TOKEN is set")
-	case *thothURL == "" && *thothToken != "":
-		lg.WarnContext(ctx, "THOTH_TOKEN is set but no THOTH_URL is set")
-	case *thothURL != "" && *thothToken != "":
-		lg.DebugContext(ctx, "connecting to Thoth")
-		thothClient, err := thoth.New(ctx, *thothURL, *thothToken, *thothInsecure)
-		if err != nil {
-			log.Fatalf("can't dial thoth at %s: %v", *thothURL, err)
-		}
-
-		ctx = thoth.With(ctx, thothClient)
+	if *thothURL != "" || *thothToken != "" || *thothInsecure {
+		lg.WarnContext(ctx, "Thoth support was removed and THOTH_URL, THOTH_TOKEN, and THOTH_INSECURE are ignored. Use the geoip block in your policy file for asns and geoip rules instead")
 	}
 
 	lg.InfoContext(ctx, "loading policy file", "fname", *policyFname)
@@ -474,7 +476,7 @@ func run(ctx context.Context) {
 		h = internal.JA4H(h)
 	}
 
-	srv := http.Server{Handler: h, ErrorLog: internal.GetFilteredHTTPLogger()}
+	srv := internal.NewHTTPServer(h)
 	listener, listenerUrl, err := internal.SetupListener(*bindNetwork, *bind, *socketMode)
 	if err != nil {
 		log.Fatalf("SetupListener(%q, %q, %q): %v", *bindNetwork, *bind, *socketMode, err)
@@ -488,6 +490,7 @@ func run(ctx context.Context) {
 		"target", *target,
 		"version", anubis.Version,
 		"use-remote-address", *useRemoteAddress,
+		"custom-real-ip-header", *customRealIPHeader,
 		"debug-benchmark-js", *debugBenchmarkJS,
 		"og-passthrough", *ogPassthrough,
 		"og-expiry-time", *ogTimeToLive,
